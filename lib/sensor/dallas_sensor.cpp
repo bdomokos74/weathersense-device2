@@ -2,9 +2,9 @@
 
 DallasSensor::DallasSensor(int oneWirePin) {
   oneWire = new OneWire(oneWirePin);
-  sensors = new DallasTemperature(oneWire);
+  //sensors = new DallasTemperature(oneWire);
   Serial.println("DallasSensor Constructor");
-  sensors->begin();
+  /* sensors->begin();
   if(sensors->getAddress(address, deviceNum)) {
     found = true;
     Serial.print("DallasSensor found: ");
@@ -12,7 +12,7 @@ DallasSensor::DallasSensor(int oneWirePin) {
     Serial.println("");
   } else {
     Serial.println("DallasSensor not found.");
-  }
+  }*/
 }
 
 void DallasSensor::printAddress() {

@@ -2,7 +2,7 @@
 #define DALLAS_SENSOR_H
 
 #include <OneWire.h>
-#include <DallasTemperature.h>
+//#include <DallasTemperature.h>
 
 #define tohex(v) ( ((v)<10)?'0'+(v):'A'+(v)-10 )
 
@@ -12,7 +12,7 @@ private:
   int deviceNum = 0;
   DeviceAddress address;
   OneWire *oneWire;
-  DallasTemperature *sensors;
+  //DallasTemperature *sensors;
 public:
   DallasSensor(int oneWirePin);
   bool isConnected();

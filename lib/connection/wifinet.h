@@ -12,6 +12,7 @@ public:
   WifiNet();
   bool connect();
   bool isConnected();
+  bool initializeTime();
   void close();
 };
 

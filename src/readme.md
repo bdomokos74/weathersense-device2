@@ -1,3 +1,11 @@
+
+https://github.com/platformio/platform-espressif32/releases
+https://github.com/espressif/esp-idf/issues/6341
+https://docs.espressif.com/projects/arduino-esp32/en/latest/installing.html
+https://registry.platformio.org/platforms/platformio/espressif32
+
+onewire issue
+https://github.com/espressif/arduino-esp32/issues/6559
 ---
 page_type: sample
 description: Connecting an ESP32 device to Azure IoT using the Azure SDK for Embedded C

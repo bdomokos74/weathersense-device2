@@ -4,7 +4,7 @@
 
 #include <wifinet.h>
 #include "local_config.h"
-#include "iot.h"
+
 #include <led.h>
 #include <sevenseg.h>
 #include <bme_sensor.h>
@@ -16,6 +16,12 @@
 #include "esp_task_wdt.h"
 #include "esp_system.h"
 
+extern void initializeIoTHubClient();
+extern int initializeMqttClient();
+extern bool requestTwinGet();
+extern bool sendData(char *msg);
+
+
 #define DALLAS_PIN 15
 #define BME_ADDR 0x76
 #define WDT_TIMEOUT 600
@@ -25,7 +31,6 @@ BMESensor *bmeSensor;
 DallasSensor *dallasSensor;
 SevenSeg *sevenSeg;
 WifiNet *wifiNet;
-IotConn *iotConn;
 LedUtil *led;
 Storage *storage;
 State *deviceState;
@@ -47,6 +52,20 @@ void test();
 void debugState();
 void show7Seg();
 
+
+void establishConnection() {
+    if(!wifiNet->connect()) {
+       deepSleep->goSleep(120);
+    }
+    if(!wifiNet->initializeTime()) {
+      wifiNet->close();
+      deepSleep->goSleep(120);
+    }
+
+    initializeIoTHubClient();
+    initializeMqttClient();
+}
+
 void setup() 
 {
   Serial.begin(115200);
@@ -54,7 +73,7 @@ void setup()
   delay(100);
   Serial.println("ESP32 Device Initializing..."); 
   
-  esp_log_level_set("MQTT_CLIENT", ESP_LOG_VERBOSE);
+  esp_log_level_set("*", ESP_LOG_VERBOSE);
 
   start_interval_ms = millis();
   Wire.begin();
@@ -66,10 +85,8 @@ void setup()
   led = new LedUtil();
   storage = new Storage(bmeSensor, dallasSensor, gmSensor, deviceState);
   wifiNet = new WifiNet();
-  iotConn = new IotConn(wifiNet);
-  deepSleep = new DeepSleep(wifiNet, iotConn, storage, deviceState, led);
+  deepSleep = new DeepSleep(wifiNet, storage, deviceState, led);
   sevenSeg = new SevenSeg();
-  
   
   esp_task_wdt_init(WDT_TIMEOUT, true);
   esp_task_wdt_add(NULL);
@@ -77,33 +94,13 @@ void setup()
   test();
   
   deepSleep->logWakeup();
-  if(deviceState->getDoSleep() && deepSleep->isWakeup()) {
-    
-      logMsg("before wakeloop");
-      deepSleep->wakeLoop();
-      logMsg("after wakeloop");
-    
-  } else 
-  {
-    sevenSeg->connect();
+  
+  logMsg("trying wifi connect");
+  establishConnection();
+  requestTwinGet();
+  prevConnFailed = true;
+  //delay(deviceState->getMeasureIntervalMs());
 
-    logMsg("trying wifi connect");
-
-    wifiNet->connect();
-    iotConn->connect();
-
-    if(iotConn->isConnected()) {
-      //iotConn->subscribeTwin();
-      //iotConn->subscribeC2D();
-      //iotConn->subscribeMethods();
-      //delay(500);
-      //iotConn->requestTwinGet();
-    } else 
-    {
-      prevConnFailed = true;
-      delay(deviceState->getMeasureIntervalMs());
-    }
-  }
   loopCnt=0;
 }
 
@@ -128,43 +125,19 @@ void loop()
 
     debugState();
     
-    if(prevConnFailed || 
-      storage->getNumStoredMeasurements() >= deviceState->getMeasureBatchSize() ||
+    if(storage->getNumStoredMeasurements() >= deviceState->getMeasureBatchSize() ||
       storage->isBufferFull()) 
     {
-        if(storage->isBufferFull()) {
-          logMsg("!buffer full - trying to send");
-        }
-        logMsg("connection loop");
-        if(!wifiNet->isConnected())   
-        {
-          wifiNet->connect();
-          iotConn->connect();
-          if(iotConn->isConnected()) 
-          {
-            /*iotConn->subscribeTwin();
-            iotConn->subscribeC2D();
-            iotConn->subscribeMethods();
-            delay(100);
-             */
-            iotConn->requestTwinGet();
-          }
-        }
-        if (iotConn->isConnected() )
-        {
-          prevConnFailed = false;
-          esp_task_wdt_reset();
-
-          logMsg("connected loop");
+        
 
           if(  storage->getNumStoredMeasurements()>0)
           {
-            iotConn->requestTwinGet();
+            //requestTwinGet();
             //if(!iotConn->requestTwinGet()) {
             //  logMsg("twin get req failed");
             //}
             
-            if(iotConn->sendData()) 
+            if(sendData(storage->getDataBuf())) 
             {
               led->flashLedSend();
               storage->reset();
@@ -175,15 +148,15 @@ void loop()
         } else {
           prevConnFailed = true;
         }
-    }
     
+    requestTwinGet();
+
     lastSend = millis();
     loopCnt += 1;
   }
 
   if(deviceState->getDoSleep()) {
     Serial.println("Sleep mode was requested, going to sleep...");
-    iotConn->close();
     wifiNet->close();
     if(sevenSeg->isConnected()) {
       sevenSeg->clear();

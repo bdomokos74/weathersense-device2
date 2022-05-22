@@ -1,4 +1,4 @@
-#include "iot.h"
+
 #include <led.h>
 #include <sevenseg.h>
 #include "storage.h"
@@ -10,7 +10,6 @@
 #include <mqtt_client.h>
 
 #include <az_core.h>
-#include <az_iot.h>
 #include <azure_ca.h>
 
 /*
@@ -21,15 +20,14 @@
 
 #include <esp_system.h>
 
-#include <esp_system.h>
-
-
 #define AZURE_SDK_CLIENT_USER_AGENT "c/" AZ_SDK_VERSION_STRING "(ard;esp32)"
 #define WEATHERSENSE_CLIENT_VERSION "v2.0"
 
 /*String containing Hostname, Device Id & Device Key in the format:                         */
 /*  "HostName=<host_name>;DeviceId=<device_id>;SharedAccessKey=<device_key>"                */
 /*  "HostName=<host_name>;DeviceId=<device_id>;SharedAccessSignature=<device_sas_token>"    */
+
+#define sizeofarray(a) (sizeof(a) / sizeof(a[0]))
 
 #define MESSAGE_MAX_LEN 256
 #define MESSAGE_ACK_TIMEOUT_MS 10000
@@ -53,7 +51,7 @@ extern Storage *storage;
 static bool messageSendingOn = true;
 static bool statusRequested = false;
 
-unsigned long IotConn::sendTime = 0;
+//unsigned long IotConn::sendTime = 0;
 
 unsigned long connStartTime = 0;
 
@@ -82,7 +80,8 @@ static az_span const directmsg_topic_request_id = AZ_SPAN_LITERAL_FROM_STR("devi
 static az_span const methods_topic_request_id = AZ_SPAN_LITERAL_FROM_STR("methods");
 
 static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event);
-bool _requestTwinGet(int requestId);
+//bool _requestTwinGet(int requestId);
+
 int twinGetId = -1;
 int twinStatus = 0;
 
@@ -93,7 +92,7 @@ static AzIoTSasToken sasToken(
     AZ_SPAN_FROM_BUFFER(mqtt_password));
 
 
-static void initializeIoTHubClient()
+void initializeIoTHubClient()
 {
   az_iot_hub_client_options options = az_iot_hub_client_options_default();
   options.user_agent = AZ_SPAN_FROM_STR(AZURE_SDK_CLIENT_USER_AGENT);
@@ -128,7 +127,7 @@ static void initializeIoTHubClient()
   Serial.print("Username: " ); Serial.println(mqtt_username);
 }
 
-static int initializeMqttClient()
+int initializeMqttClient()
 {
   
   if (sasToken.Generate(SAS_TOKEN_DURATION_IN_MINUTES) != 0)
@@ -179,15 +178,14 @@ static int initializeMqttClient()
   
 }
 
-az_iot_status _handleMethod(char *methodName, char *response, int response_size);
+static az_iot_status _handleMethod(char *methodName, char *response, int response_size);
 
 
-bool _requestTwinGet(int requestId) {
-  Serial.print("req twin get ");
-  Serial.println(requestId);
+static bool _requestTwinGet() {
+    Serial.print("req twin get ");
   //Logger.Info("request twin get: "+String(requestId));
   char twin_document_topic_buffer[128];
-  
+  esp_log_level_set("*", ESP_LOG_VERBOSE);
   Serial.println("calling get topic2");
   if (az_result_failed(az_iot_hub_client_twin_document_get_publish_topic(
       &client, twin_document_topic_request_id, twin_document_topic_buffer, sizeof(twin_document_topic_buffer), NULL)))
@@ -203,9 +201,9 @@ bool _requestTwinGet(int requestId) {
   int msgId = esp_mqtt_client_publish(
           mqtt_client,
           twin_document_topic_buffer,
+          NULL,
           0,
-          0,
-          0,
+          1,
           NULL);
   if(msgId==0)
   {
@@ -217,7 +215,7 @@ bool _requestTwinGet(int requestId) {
   return true;
 }
 
-bool _replyTwinGet(az_span *msg) {
+static bool _replyTwinGet(az_span *msg) {
   char statusBuf[128];
   char twin_patch_topic_buffer[128];
 
@@ -258,7 +256,7 @@ bool _replyTwinGet(az_span *msg) {
 
 }
 
-bool _sendMethodResponse(az_iot_hub_client_method_request *method_request, az_iot_status status, az_span response) {
+static bool _sendMethodResponse(az_iot_hub_client_method_request *method_request, az_iot_status status, az_span response) {
   char methods_response_topic_buffer[200];
   if( az_result_failed(az_iot_hub_client_methods_response_get_publish_topic(
       &client,
@@ -288,23 +286,23 @@ bool _sendMethodResponse(az_iot_hub_client_method_request *method_request, az_io
   }
 }
 
-void _debugEvent(char *topic, char *msg) 
+static void _debugEvent(char *topic, char *msg) 
 {
   Serial.print("topic=");Serial.println(topic);
   Serial.print("data=");Serial.println(msg);
 }
 
-bool _is_twinGetReply(az_span *topic) {
+static bool _is_twinGetReply(az_span *topic) {
   return (az_span_find(*topic, twin_document_topic_request_id)>0);
 }
 
-bool _is_twinPatch(az_span *topic) {
+static bool _is_twinPatch(az_span *topic) {
   return (az_span_find( *topic, twin_patch_topic_request_id)>=0);
 }
-bool _is_method(az_span *topic) {
+static bool _is_method(az_span *topic) {
   return (az_span_find( *topic, methods_topic_request_id)>=0);
 }
-bool _is_c2d(az_span *topic) {
+static bool _is_c2d(az_span *topic) {
   return (az_span_find( *topic, directmsg_topic_request_id)>=0);
 }
 static uint8_t msgBuf[300];
@@ -470,35 +468,7 @@ static bool _subscribeMethods()
 
 */
 
-IotConn::IotConn(WifiNet *wifiNet) 
-{
-  this->wifiNet = wifiNet;
-}
-
-bool IotConn::connect() 
-{
-  if(hasIoTHub) return true;
-
-  if(!wifiNet->isConnected()) {
-    Serial.println("No WiFi, skip IoT");
-    hasIoTHub = false;
-    return false;
-  }
-  initializeIoTHubClient();
-  initializeMqttClient();
-
-  unsigned long connStart = millis();
-  while(!hasIoTHub&&(int)(millis()-connStart)<5000) {
-    delay(10);
-  }
-  
-  return hasIoTHub;
-}
-
-bool IotConn::isConnected() 
-{
-  return hasIoTHub;
-}
+/*
 
 void IotConn::close() 
 {
@@ -513,6 +483,9 @@ void IotConn::close()
   hasIoTHub =false;
 
 }
+*/
+
+
 
 /*
 bool IotConn::subscribeTwin() {
@@ -525,21 +498,21 @@ bool IotConn::subscribeMethods() {
   return _subscribeMethods();
 }
 */
-bool IotConn::requestTwinGet() {
+bool requestTwinGet() {
   bool ret = false;
   if(twinStatus==1) {
-    ret = _requestTwinGet(twinGetId);
+    ret = _requestTwinGet();
     twinStatus = 2;
+  } else if(twinStatus==0){
+    logMsg("-----skipping twin get");
   }
   return ret;
 }
 
 
-bool IotConn::sendData() 
+bool sendData(char *msg) 
 {
   if(!hasIoTHub) return false;
-
-  char *msg = storage->getDataBuf();
 
   logMsg("sendData: telemetry:");
   logMsg(msg);
@@ -574,6 +547,11 @@ bool IotConn::sendData()
     return true;
   }
 }
+
+extern SevenSeg *sevenSeg;
+extern LedUtil *led;
+extern Storage *storage;
+extern State *deviceState;
 
 
 az_iot_status _handleMethod(char *methodName, char *response, int response_size)

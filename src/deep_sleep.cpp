@@ -1,13 +1,17 @@
 #include "deep_sleep.h"
 
+extern void initializeIoTHubClient();
+extern int initializeMqttClient();
+extern bool requestTwinGet();
+extern bool sendData(char *msg);
+
 #define LOOP_TIME_MILLIS 10000
 
 RTC_DATA_ATTR int wakeCnt = 0;
 extern bool prevConnFailed;
 
-DeepSleep::DeepSleep(WifiNet *wifiNet, IotConn *iotConn, Storage *storage, State *deviceState, LedUtil *led) {
+DeepSleep::DeepSleep(WifiNet *wifiNet, Storage *storage, State *deviceState, LedUtil *led) {
   this->wifiNet = wifiNet;
-  this->iotConn = iotConn;
   this->storage = storage;
   this->deviceState = deviceState;
   this->led = led;
@@ -33,6 +37,11 @@ bool DeepSleep::isWakeup() {
   esp_sleep_wakeup_cause_t reason = esp_sleep_get_wakeup_cause();
   return (reason==ESP_SLEEP_WAKEUP_TIMER);
 }
+
+void DeepSleep::goSleep(int sleepSec) {
+  esp_sleep_enable_timer_wakeup(uS_TO_S_FACTOR * sleepSec);
+  esp_deep_sleep_start();
+} 
 
 void DeepSleep::goSleep() 
 {
@@ -67,9 +76,11 @@ void DeepSleep::wakeLoop() {
     if(storage->isBufferFull()) {
           logMsg("!buffer full - trying to send");
     }
+
     wifiNet->connect();  
-    iotConn->connect();
-    if(iotConn->isConnected())
+    wifiNet->initializeTime();
+    initializeIoTHubClient();
+    if(initializeMqttClient())
     {
       //iotConn->subscribeTwin();
       //delay(500);
@@ -84,7 +95,7 @@ void DeepSleep::wakeLoop() {
       {
         if( storage->getNumStoredMeasurements()>0)
         {
-          if(iotConn->sendData()) {
+          if(sendData(storage->getDataBuf())) {
               led->flashLedSend();
               storage->reset();
           } else {
@@ -101,7 +112,7 @@ void DeepSleep::wakeLoop() {
   
   if(deviceState->getDoSleep()) {
     logMsg("closing connections");
-    iotConn->close();
+
     wifiNet->close(); 
 
     goSleep();

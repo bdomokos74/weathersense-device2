@@ -22,31 +22,6 @@ extern char* wifiSsid;
 extern char* wifiPw;
 
 
-static bool initializeTime()
-{
-  logMsg("Setting time using SNTP");
-
-  configTime(GMT_OFFSET_SECS, GMT_OFFSET_SECS_DST, NTP_SERVERS);
-  time_t now = time(NULL);
-  int cnt = 0;
-  while (now < UNIX_TIME_NOV_13_2017 && cnt < TIME_RETRY_COUNT)
-  {
-    delay(500);
-    Serial.print(".");
-    now = time(nullptr);
-  }
-  Serial.println("");
-  if (now < UNIX_TIME_NOV_13_2017) {
-    WiFi.disconnect();
-    delay(100);
-    return -1;
-  }
-  
-  Serial.print("Time initialized, ");
-  Serial.println(now);
-  return 0;
-}
-
 WifiNet::WifiNet() {
 }
 
@@ -101,7 +76,7 @@ bool WifiNet::connect() {
     if(retry==0) {
       Serial.print("\nWifi connect failed to: ");
       Serial.println(wifiSsid);
-      return -1;
+      return false;
     }
     --retry;
     state = _tryConnect();
@@ -111,21 +86,42 @@ bool WifiNet::connect() {
   Serial.println(wifiSsid);
   Serial.print("WiFi IP: ");
   Serial.println(WiFi.localIP());
-  if(initializeTime()!=0)
-  {
-    return -1;
-  }
-  logTime();
+  return true;
 }
+
 
 bool WifiNet::isConnected() {
 
   return (WiFi.status() == WL_CONNECTED);
 }
 
-
 void WifiNet::close() {
   WiFi.persistent(false);
   WiFi.disconnect();
   delay(100);
+}
+
+bool WifiNet::initializeTime()
+{
+  logMsg("Setting time using SNTP");
+
+  configTime(GMT_OFFSET_SECS, GMT_OFFSET_SECS_DST, NTP_SERVERS);
+  time_t now = time(NULL);
+  int cnt = 0;
+  while (now < UNIX_TIME_NOV_13_2017 && cnt < TIME_RETRY_COUNT)
+  {
+    delay(500);
+    Serial.print(".");
+    now = time(nullptr);
+  }
+  Serial.println("");
+  if (now < UNIX_TIME_NOV_13_2017) {
+    WiFi.disconnect();
+    delay(100);
+    return false;
+  }
+  
+  Serial.print("Time initialized, ");
+  logTime();
+  return true;
 }
