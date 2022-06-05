@@ -62,14 +62,11 @@ void SerialLogger::error(String message)
 }
 
 void SerialLogger::printBuf(char *header, char *data, int len) {
-    printSpan(header,  az_span_create((uint8_t*)data, len));
-}
-
-void SerialLogger::printSpan(char *header, az_span span) {
+    az_span span;
     char buf[1024];
     az_span bufspan = AZ_SPAN_FROM_BUFFER(buf);
     az_span rem = az_span_copy(bufspan, az_span_create_from_str(header));
-    rem = az_span_copy(rem, span);
+    rem = az_span_copy(rem, az_span_create((uint8_t*)data, len));
     az_span_copy_u8(rem, 0);
     writeTime();
     Serial.print(" ");

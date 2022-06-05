@@ -1,6 +1,6 @@
 #include "bme_sensor.h"
-#include "SerialLogger.h"
 #include <Arduino.h>
+#include "SerialLogger.h"
 
 Adafruit_Sensor *bme_temp;
 Adafruit_Sensor *bme_pressure;

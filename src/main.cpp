@@ -18,11 +18,13 @@
 #include "iot.h"
 
 #include "telemetry.h"
+#include "props.h"
 
 unsigned long start_interval_ms = 0;
 unsigned long lastSend = 0;
 unsigned long loopCnt = 0;
 unsigned long start_millis;
+unsigned long twinpatch_millis;
 
 #define MEAS_INTERVAL_MILLIS 30000
 
@@ -31,6 +33,8 @@ RTC_DATA_ATTR bool prevConnFailed = false;
 WifiNet *wifiNet;
 BMESensor *bmeSensor;
 DeepSleep *deepSleep;
+
+Props *props;
 
 char *iothubHost = IOT_CONFIG_IOTHUB_FQDN;
 char *mqtt_broker_uri = "mqtts://" IOT_CONFIG_IOTHUB_FQDN;
@@ -60,13 +64,10 @@ void setup()
 {
   Serial.begin(115200);
   Serial.setDebugOutput(true);
-  while (!Serial)
-  {
-  };
+  while (!Serial) {};
 
   delay(100);
   Logger.info("ESP32 Device Initializing...");
-
   esp_log_level_set("*", ESP_LOG_DEBUG);
 
   start_interval_ms = millis();
@@ -74,6 +75,8 @@ void setup()
 
   bmeSensor = new BMESensor(BME_ADDR);
   deepSleep = new DeepSleep();
+
+  props = new Props(WS_VERSION, GIT_REV);
 
   esp_task_wdt_init(WDT_TIMEOUT, true);
   esp_task_wdt_add(NULL);
@@ -85,6 +88,9 @@ void setup()
 }
 
 bool twinDone = false;
+bool twinRecv = false;
+bool twinPatchDone = false;
+
 void loop()
 {
 
@@ -103,8 +109,14 @@ void loop()
 
   if (!twinDone && (int)(millis() - start_millis) > 5000)
   {
-    // sendTwinProp();
     requestTwin();
     twinDone = true;
+    twinpatch_millis = millis();
+  }
+
+  if (twinDone && !twinPatchDone && (int)(millis() - twinpatch_millis) > 2000)
+  {
+    sendTwinProp();
+    twinPatchDone = true;
   }
 }

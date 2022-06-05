@@ -11,6 +11,7 @@
 
 
 bool handleTwinResp(esp_mqtt_event_handle_t event) ;
+bool handleC2d(esp_mqtt_event_handle_t event);
 
 #define sizeofarray(a) (sizeof(a) / sizeof(a[0]))
 
@@ -159,10 +160,16 @@ esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
       break;
     case MQTT_EVENT_DATA:
       Logger.info("MQTT event MQTT_EVENT_DATA");
-
+      Logger.printBuf("topic: ", event->topic, event->topic_len);
+      
       if(handleTwinResp(event)) {    
         Logger.info("twin handled");
+      } else if(handleC2d(event) ) {
+        Logger.info("c2d handled");
+      } else {
+        Logger.info("msg not handled");
       }
+
       break;
     case MQTT_EVENT_BEFORE_CONNECT:
       Logger.info("MQTT event MQTT_EVENT_BEFORE_CONNECT");
@@ -276,14 +283,13 @@ extern void getTelemetryPayload(az_span payload, az_span* out_payload);
 
 int sendTelemetry()
 {
+  Logger.info("Sending telemetry ...");
 
   if(!connected||!cldMsgSubOk) {
     Serial.println("not connected, skip telemetry");
     return 0;
   }
   az_span telemetry = AZ_SPAN_FROM_BUFFER(telemetry_payload);
-
-  Logger.info("Sending telemetry ...");
 
   // The topic could be obtained just once during setup,
   // however if properties are used the topic need to be generated again to reflect the

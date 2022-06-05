@@ -5,7 +5,6 @@
 #define SERIALLOGGER_H
 
 #include <Arduino.h>
-#include <az_span.h>
 
 #ifndef SERIAL_LOGGER_BAUD_RATE
 #define SERIAL_LOGGER_BAUD_RATE 115200
@@ -18,7 +17,6 @@ public:
   void info(String message);
   void error(String message);
   void printBuf(char *header, char *data, int len);
-  void printSpan(char *header, az_span span);
   void println(char *str1, char *str2);
   void println(char *str1, int i);
   void println(char *str);
