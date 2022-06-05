@@ -42,7 +42,7 @@ void DeepSleep::goSleep(int sleepSec) {
 
 void DeepSleep::goSleep() 
 {
-  Logger.Info("go to sleep");
+  Logger.info("go to sleep");
   ++wakeCnt;
   esp_sleep_enable_timer_wakeup(uS_TO_S_FACTOR * sleepTimeSec);
   esp_deep_sleep_start();

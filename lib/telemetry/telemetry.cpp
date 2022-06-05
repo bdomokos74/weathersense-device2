@@ -41,6 +41,6 @@ void getTelemetryPayload(az_span payload, az_span* out_payload)
 
   *out_payload = az_span_slice(original_payload, 0, az_span_size(original_payload) - az_span_size(payload) - 1);
   
-  Serial.println("payload=");
+  Serial.print("payload = ");
   Serial.println((char*)az_span_ptr(*out_payload));
 }

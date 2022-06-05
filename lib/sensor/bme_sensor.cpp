@@ -62,9 +62,9 @@ float BMESensor::readHumidity() {
 }
 
 void BMESensor::printTelemetry() {
-  Logger.Info("temp="+String(this->readTemp()));
-  Logger.Info("pressure="+String(this->readPressure()));
-  Logger.Info("h="+String(this->readHumidity()));
+  Logger.info("temp="+String(this->readTemp()));
+  Logger.info("pressure="+String(this->readPressure()));
+  Logger.info("h="+String(this->readHumidity()));
 }
 
 void BMESensor::debug() {

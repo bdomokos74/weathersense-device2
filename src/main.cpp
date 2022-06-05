@@ -65,7 +65,7 @@ void setup()
   };
 
   delay(100);
-  Logger.Info("ESP32 Device Initializing...");
+  Logger.info("ESP32 Device Initializing...");
 
   esp_log_level_set("*", ESP_LOG_DEBUG);
 

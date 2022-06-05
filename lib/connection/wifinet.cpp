@@ -105,7 +105,7 @@ void WifiNet::close() {
 
 bool WifiNet::initializeTime()
 {
-  Logger.Info("Setting time using SNTP");
+  Logger.info("Setting time using SNTP");
 
   configTime(GMT_OFFSET_SECS, GMT_OFFSET_SECS_DST, NTP_SERVERS);
   time_t now = time(NULL);
@@ -123,6 +123,6 @@ bool WifiNet::initializeTime()
     return false;
   }
   
-  Logger.Info("Time initialized");
+  Logger.info("Time initialized");
   return true;
 }
