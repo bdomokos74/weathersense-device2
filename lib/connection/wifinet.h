@@ -2,14 +2,12 @@
 #define WIFINET_H
 
 #include <WiFi.h>
-#include <time.h>
-#include <log.h>
 
 class WifiNet {
 private:
 
 public:
-  WifiNet();
+  WifiNet(char *ssid, char *pw);
   bool connect();
   bool isConnected();
   bool initializeTime();

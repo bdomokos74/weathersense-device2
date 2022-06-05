@@ -1,3 +1,440 @@
+#include <SerialLogger.h>
+#include <mqtt_client.h>
+
+// Azure IoT SDK for C includes
+#include <az_core.h>
+#include <az_iot.h>
+#include <azure_ca.h>
+#include "AzIoTSasToken.h"
+
+#define sizeofarray(a) (sizeof(a) / sizeof(a[0]))
+
+#define MQTT_QOS1 1
+#define DO_NOT_RETAIN_MSG 0
+#define SAS_TOKEN_DURATION_IN_MINUTES 60
+
+extern char* iothubHost;
+extern char* iotDeviceId;
+extern char* iotDeviceKey;
+
+extern char* mqtt_broker_uri;
+
+// without the api version, the twin api will not work
+#define API_VER "/?api-version=2021-04-12"
+
+static const int mqtt_port = AZ_IOT_DEFAULT_MQTT_CONNECT_PORT;
+
+// When developing for your own Arduino-based platform,
+// please follow the format '(ard;<platform>)'. 
+#define AZURE_SDK_CLIENT_USER_AGENT "c/" AZ_SDK_VERSION_STRING "(ard;esp32)"
+
+// Memory allocated for the sample's variables and structures.
+static esp_mqtt_client_handle_t mqtt_client;
+static az_iot_hub_client client;
+
+static char mqtt_client_id[128];
+static char mqtt_username[128];
+static char mqtt_password[200];
+static uint8_t sas_signature_buffer[256];
+static unsigned long next_telemetry_send_time_ms = 0;
+static char telemetry_topic[128];
+static char twin_topic[128];
+static uint8_t telemetry_payload[100];
+
+bool connected = false;
+
+#define INCOMING_DATA_BUFFER_SIZE 1024
+static char incoming_data[INCOMING_DATA_BUFFER_SIZE];
+
+// Auxiliary functions
+#ifndef IOT_CONFIG_USE_X509_CERT
+static AzIoTSasToken sasToken(
+    &client,
+    az_span_create_from_str(iotDeviceKey),
+    AZ_SPAN_FROM_BUFFER(sas_signature_buffer),
+    AZ_SPAN_FROM_BUFFER(mqtt_password));
+#endif // IOT_CONFIG_USE_X509_CERT
+
+int cldMsgSubsId;
+int twingetSubsId;
+int twinPropSubsId;
+
+int cldMsgSubOk = false;
+int twingetSubsOk = false;
+int twinPropSubsOk = false;
+esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
+{
+  char printBuf[200];
+
+  char buf[1500];
+  az_span sp = AZ_SPAN_FROM_BUFFER(buf);
+  az_span topicSpan;
+  az_span printSpan;
+  az_span dataSpan;
+  az_span eventDataSpan;
+  az_span remainder;
+  switch (event->event_id)
+  {
+    int i, r;
+     
+    case MQTT_EVENT_ERROR:
+      Logger.Info("MQTT event MQTT_EVENT_ERROR");
+      /*
+      sp = az_span_copy(sp, AZ_SPAN_FROM_STR("data: "));
+      sp = az_span_copy(sp, az_span_create((uint8_t*)event->data, event->data_len));
+
+      sp = az_span_copy(sp, AZ_SPAN_FROM_STR(" topic: "));
+      sp = az_span_copy(sp, az_span_create((uint8_t*)event->topic, event->topic_len));
+
+      sp = az_span_copy(sp, AZ_SPAN_FROM_STR(" lasterr: "));
+      az_span_i32toa(sp, event->error_handle->esp_tls_last_esp_err, &sp);
+
+      sp = az_span_copy(sp, AZ_SPAN_FROM_STR(" esp_tls_stack_err: "));
+      az_span_i32toa(sp, event->error_handle->esp_tls_stack_err, &sp);
+
+      sp = az_span_copy(sp, AZ_SPAN_FROM_STR(" esp_tls_cert_verify_flags: "));
+      az_span_i32toa(sp, event->error_handle->esp_tls_cert_verify_flags, &sp);
+
+      sp = az_span_copy(sp, AZ_SPAN_FROM_STR(" error_type: "));
+      az_span_i32toa(sp, event->error_handle->error_type, &sp);
+      
+      sp = az_span_copy(sp, AZ_SPAN_FROM_STR(" connect_return_code: "));
+      az_span_i32toa(sp, event->error_handle->connect_return_code, &sp);
+
+      sp = az_span_copy(sp, AZ_SPAN_FROM_STR(" esp_transport_sock_errno: "));
+      az_span_i32toa(sp, event->error_handle->esp_transport_sock_errno, &sp);
+*/
+      az_span_copy_u8(sp, 0);
+      Logger.Info(buf);
+      break;
+    case MQTT_EVENT_CONNECTED:
+      Logger.Info("MQTT event MQTT_EVENT_CONNECTED");
+      
+
+      r = esp_mqtt_client_subscribe(mqtt_client, AZ_IOT_HUB_CLIENT_C2D_SUBSCRIBE_TOPIC, 1);
+      if (r == -1)
+      {
+        Logger.Error("Could not subscribe for cloud-to-device messages.");
+      }
+      else
+      {
+        Logger.Info("Subscribed for cloud-to-device messages; message id:"  + String(r));
+        cldMsgSubsId = r;
+      }
+
+      r = esp_mqtt_client_subscribe(mqtt_client, AZ_IOT_HUB_CLIENT_TWIN_RESPONSE_SUBSCRIBE_TOPIC, 1);
+      if (r == -1)
+      {
+        Logger.Error("Could not subscribe for twin resp messages.");
+      }
+      else
+      {
+        Logger.Info("Subscribed for twin resp messages; message id:"  + String(r));
+        twingetSubsId = r;
+      }
+
+      r = esp_mqtt_client_subscribe(mqtt_client, AZ_IOT_HUB_CLIENT_PROPERTIES_WRITABLE_UPDATES_SUBSCRIBE_TOPIC, 1);
+      if (r == -1)
+      {
+        Logger.Error("Could not subscribe for twin prop messages.");
+      }
+      else
+      {
+        Logger.Info("Subscribed for twin prop messages; message id:"  + String(r));
+        twinPropSubsId = r;
+      }
+
+      connected = true;
+      break;
+    case MQTT_EVENT_DISCONNECTED:
+      Logger.Info("MQTT event MQTT_EVENT_DISCONNECTED");
+      connected = false;
+      break;
+    case MQTT_EVENT_SUBSCRIBED:
+      Logger.Info("MQTT event MQTT_EVENT_SUBSCRIBED msgid=" + String(event->msg_id));
+      if(event->msg_id==cldMsgSubsId) {
+        cldMsgSubOk = true;
+      } else if(event->msg_id==twingetSubsId) {
+        twingetSubsOk = true;
+      } else if(event->msg_id==twinPropSubsId) {
+        twinPropSubsOk = true;
+      }
+      break;
+    case MQTT_EVENT_UNSUBSCRIBED:
+      Logger.Info("MQTT event MQTT_EVENT_UNSUBSCRIBED");
+      break;
+    case MQTT_EVENT_PUBLISHED:
+      Logger.Info("MQTT event MQTT_EVENT_PUBLISHED");
+      break;
+    case MQTT_EVENT_DATA:
+      Logger.Info("MQTT event MQTT_EVENT_DATA");
+
+    
+      topicSpan = az_span_create((uint8_t*)event->topic, event->topic_len);
+      printSpan = AZ_SPAN_FROM_BUFFER(printBuf);
+      remainder = az_span_copy(printSpan, topicSpan);
+      remainder = az_span_copy_u8(remainder, 0);
+      Serial.print("Topic: ");Serial.println( printBuf);
+
+      eventDataSpan = az_span_create((uint8_t*)event->data, event->data_len);
+      dataSpan = AZ_SPAN_FROM_BUFFER(incoming_data);
+      remainder = az_span_copy(dataSpan, eventDataSpan);
+      remainder = az_span_copy_u8(remainder, 0);
+      Serial.print("Data: "); Serial.println(incoming_data);
+
+      break;
+    case MQTT_EVENT_BEFORE_CONNECT:
+      Logger.Info("MQTT event MQTT_EVENT_BEFORE_CONNECT");
+      break;
+    default:
+      Logger.Error("MQTT event UNKNOWN");
+      break;
+  }
+
+  return ESP_OK;
+}
+
+void initializeIoTHubClient()
+{
+  az_iot_hub_client_options options = az_iot_hub_client_options_default();
+  options.user_agent = AZ_SPAN_FROM_STR(AZURE_SDK_CLIENT_USER_AGENT);
+
+  if (az_result_failed(az_iot_hub_client_init(
+          &client,
+          az_span_create((uint8_t*)iothubHost, strlen(iothubHost)),
+          az_span_create((uint8_t*)iotDeviceId, strlen(iotDeviceId)),
+          &options)))
+  {
+    Logger.Error("Failed initializing Azure IoT Hub client");
+    return;
+  }
+
+  size_t client_id_length;
+  if (az_result_failed(az_iot_hub_client_get_client_id(
+          &client, mqtt_client_id, sizeof(mqtt_client_id) - 1, &client_id_length)))
+  {
+    Logger.Error("Failed getting client id");
+    return;
+  }
+
+  az_span username_span = AZ_SPAN_FROM_BUFFER(mqtt_username);
+  az_span remainder = az_span_copy(username_span, az_span_create_from_str(iothubHost));
+  remainder = az_span_copy_u8(remainder, '/');
+  remainder = az_span_copy(remainder, az_span_create_from_str(iotDeviceId));
+  remainder = az_span_copy(remainder, AZ_SPAN_LITERAL_FROM_STR(API_VER));
+  remainder = az_span_copy_u8(remainder, 0);
+
+  // if (az_result_failed(az_iot_hub_client_get_user_name(
+  //         &client, mqtt_username, sizeofarray(mqtt_username), NULL)))
+  // {
+  //   Logger.Error("Failed to get MQTT clientId, return code");
+  //   return;
+  // }
+
+  Logger.Info("Client ID: " + String(mqtt_client_id));
+  Logger.Info("Username: " + String(mqtt_username));
+  Logger.Info("broker uri: " + String(mqtt_broker_uri));
+}
+
+int initializeMqttClient()
+{
+  #ifndef IOT_CONFIG_USE_X509_CERT
+  if (sasToken.Generate(SAS_TOKEN_DURATION_IN_MINUTES) != 0)
+  {
+    Logger.Error("Failed generating SAS token");
+    return 1;
+  }
+  #endif
+
+  esp_mqtt_client_config_t mqtt_config;
+  memset(&mqtt_config, 0, sizeof(mqtt_config));
+  mqtt_config.uri = mqtt_broker_uri;
+  mqtt_config.port = mqtt_port;
+  mqtt_config.client_id = mqtt_client_id;
+  mqtt_config.username = mqtt_username;
+  //mqtt_config.protocol_ver = MQTT_PROTOCOL_V_3_1_1;
+
+  #ifdef IOT_CONFIG_USE_X509_CERT
+    Logger.Info("MQTT client using X509 Certificate authentication");
+    mqtt_config.client_cert_pem = IOT_CONFIG_DEVICE_CERT;
+    mqtt_config.client_key_pem = IOT_CONFIG_DEVICE_CERT_PRIVATE_KEY;
+  #else // Using SAS key
+    mqtt_config.password = (const char*)az_span_ptr(sasToken.Get());
+  #endif
+
+  mqtt_config.keepalive = 30;
+  mqtt_config.disable_clean_session = 0;
+  mqtt_config.disable_auto_reconnect = false;
+  mqtt_config.event_handle = mqtt_event_handler;
+  mqtt_config.user_context = NULL;
+  mqtt_config.cert_pem = (const char*)ca_pem;
+  //mqtt_config.cert_len = caw_pem_len;
+  mqtt_client = esp_mqtt_client_init(&mqtt_config);
+
+  if (mqtt_client == NULL)
+  {
+    Logger.Error("Failed creating mqtt client");
+    return 1;
+  }
+
+  esp_err_t start_result = esp_mqtt_client_start(mqtt_client);
+
+  if (start_result != ESP_OK)
+  {
+    Logger.Error("Could not start mqtt client; error code:" + start_result);
+    return 1;
+  }
+  else
+  {
+    Logger.Info("MQTT client started");
+    return 0;
+  }
+}
+
+extern void getTelemetryPayload(az_span payload, az_span* out_payload);
+
+int sendTelemetry()
+{
+
+  if(!connected||!cldMsgSubOk) {
+    Serial.println("not connected, skip telemetry");
+    return 0;
+  }
+  az_span telemetry = AZ_SPAN_FROM_BUFFER(telemetry_payload);
+
+  Logger.Info("Sending telemetry ...");
+
+  // The topic could be obtained just once during setup,
+  // however if properties are used the topic need to be generated again to reflect the
+  // current values of the properties.
+  size_t topic_len;
+  if (az_result_failed(az_iot_hub_client_telemetry_get_publish_topic(
+          &client, NULL, telemetry_topic, sizeof(telemetry_topic), &topic_len)))
+  {
+    Logger.Error("Failed az_iot_hub_client_telemetry_get_publish_topic");
+    return 0;
+  }
+  telemetry_topic[topic_len] = 0;
+  Serial.print("topic: ");
+  Serial.println(telemetry_topic);
+
+  getTelemetryPayload(telemetry, &telemetry);
+
+  int ret = esp_mqtt_client_publish(
+          mqtt_client,
+          telemetry_topic,
+          (const char*)az_span_ptr(telemetry),
+          az_span_size(telemetry),
+          0,
+          DO_NOT_RETAIN_MSG);
+  if (ret == -1)
+  {
+    Logger.Error("Failed publishing");
+    return 0;
+  }
+  else
+  {
+    Logger.Info("Message published successfully: "+String(ret));
+    return 1;
+  }
+}
+
+
+void sendTwinProp()
+{
+  char twin_payload[] = "{\"doSleep\":7}";
+  char twin_patch_topic[100];
+  //"$iothub/twin/PATCH/properties/reported/?$rid=patch_temp";
+
+  Logger.Info("Sending twin patch ...");
+  char reqId[4];
+  reqId[0] = '9';
+  String(random(0, 100)).toCharArray(reqId+1, (sizeof reqId) -1 );
+  reqId[3] = 0;
+
+  // The topic could be obtained just once during setup,
+  // however if properties are used the topic need to be generated again to reflect the
+  // current values of the properties.
+  size_t topic_len;
+  if (az_result_failed(az_iot_hub_client_twin_patch_get_publish_topic(
+          &client, AZ_SPAN_FROM_BUFFER(reqId), twin_patch_topic, sizeof(twin_patch_topic), &topic_len)))
+  {
+    Logger.Error("Failed az_iot_hub_client_telemetry_get_publish_topic");
+    return;
+  }
+  twin_patch_topic[topic_len] = 0;
+  Serial.print("topic: ");
+  Serial.println(twin_patch_topic);
+  Serial.println(twin_payload);
+
+  if (esp_mqtt_client_publish(
+          mqtt_client,
+          telemetry_topic,
+          twin_payload,
+          strlen(twin_payload)-1,
+          MQTT_QOS1,
+          DO_NOT_RETAIN_MSG)
+      == -1)
+  {
+    Logger.Error("Failed publishing");
+  }
+  else
+  {
+    Logger.Info("Message published successfully");
+  }
+}
+
+int twinGetReqId = 1;
+// https://docs.microsoft.com/en-us/azure/iot-hub/troubleshoot-error-codes#404104-deviceconnectionclosedremotely
+bool requestTwin()
+{
+  if(!connected||!twinGetReqId) {
+    Serial.println("not connected, skip twin get");
+    return false;
+  }
+  //az_span telemetry = AZ_SPAN_FROM_BUFFER(telemetry_payload);
+
+  Logger.Info("Requesting twin ...xx");
+
+  char reqIdBuf[16];
+  az_span reqIdSpan = AZ_SPAN_FROM_BUFFER(reqIdBuf);
+  az_span outSpan;
+  az_span_i32toa(reqIdSpan, twinGetReqId++, &outSpan);
+
+  size_t s;
+  if (az_result_failed(az_iot_hub_client_twin_document_get_publish_topic(
+          &client, reqIdSpan, twin_topic, sizeof(twin_topic), &s)))
+  {
+    Logger.Error("Failed az_iot_hub_client_properties_document_get_publish_topic");
+    return false;
+  }
+  twin_topic[s] = 0;
+  Serial.println("twintopic=");
+  Serial.println(twin_topic);
+  Serial.println(s);
+
+  int ret = esp_mqtt_client_publish(
+          mqtt_client,
+          twin_topic,
+          NULL,
+          0,
+          0,
+          false);
+  if(ret== -1)
+  {
+    Logger.Error("Failed publishing twin req");
+    return false;
+  }
+  else
+  {
+    Logger.Info("Twin req published successfully"+String(ret));
+    return true;
+  }
+  
+}
+
+
+#ifdef xxxyyy
 
 #include <led.h>
 #include <sevenseg.h>
@@ -111,7 +548,7 @@ void initializeIoTHubClient()
   if (az_result_failed(az_iot_hub_client_get_client_id(
           &client, mqtt_client_id, sizeof(mqtt_client_id) - 1, &client_id_length)))
   {
-    logErr("Failed getting client id");
+  logErr("Failed getting client id");
     return;
   }
 
@@ -623,3 +1060,6 @@ az_iot_status _handleMethod(char *methodName, char *response, int response_size)
 
   return iotStatus;
 }
+
+
+#endif

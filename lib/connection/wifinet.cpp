@@ -1,4 +1,5 @@
 #include "wifinet.h"
+#include <SerialLogger.h>
 
 #define NTP_SERVERS "pool.ntp.org", "time.nist.gov"
 
@@ -18,11 +19,12 @@
 
 #define TIME_RETRY_COUNT 5
 
-extern char* wifiSsid;
-extern char* wifiPw;
+char* wifiSsid;
+char* wifiPw;
 
-
-WifiNet::WifiNet() {
+WifiNet::WifiNet(char *ssid, char *pw) {
+  wifiSsid = ssid;
+  wifiPw = pw;
 }
 
 void _printState(wl_status_t state) {
@@ -103,7 +105,7 @@ void WifiNet::close() {
 
 bool WifiNet::initializeTime()
 {
-  logMsg("Setting time using SNTP");
+  Logger.Info("Setting time using SNTP");
 
   configTime(GMT_OFFSET_SECS, GMT_OFFSET_SECS_DST, NTP_SERVERS);
   time_t now = time(NULL);
@@ -121,7 +123,6 @@ bool WifiNet::initializeTime()
     return false;
   }
   
-  Serial.print("Time initialized, ");
-  logTime();
+  Logger.Info("Time initialized");
   return true;
 }

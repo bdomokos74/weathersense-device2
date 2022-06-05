@@ -1,5 +1,5 @@
 #include "dallas_sensor.h"
-
+#ifdef INC_DALLAS
 DallasSensor::DallasSensor(int oneWirePin) {
   oneWire = new OneWire(oneWirePin);
   //sensors = new DallasTemperature(oneWire);
@@ -31,3 +31,4 @@ float DallasSensor::readTemp() {
 bool DallasSensor::isConnected() {
   return found;
 }
+#endif

@@ -1,8 +1,10 @@
 #ifndef DALLAS_SENSOR_H
 #define DALLAS_SENSOR_H
 
+#ifdef INC_DALLAS
+
 #include <OneWire.h>
-//#include <DallasTemperature.h>
+#include <DallasTemperature.h>
 
 #define tohex(v) ( ((v)<10)?'0'+(v):'A'+(v)-10 )
 
@@ -20,4 +22,5 @@ public:
   void printAddress();
 };
 
+#endif
 #endif

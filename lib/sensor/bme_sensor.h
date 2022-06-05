@@ -6,7 +6,6 @@
 class BMESensor {
 private:
   bool bmeFound = false;
-  Adafruit_BME280 bme;
 public:
   BMESensor();
   BMESensor(int addr);
@@ -14,6 +13,8 @@ public:
   float readTemp();
   float readPressure();
   float readHumidity();
+  void printTelemetry();
+  static void debug();
 };
 
 #endif

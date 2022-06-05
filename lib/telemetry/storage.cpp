@@ -1,4 +1,6 @@
 #include "storage.h"
+
+#ifdef xxxyyyy
 const char *measTemplate = "Temperature:%.2f, Pressure:%.2f, Humidity:%.2f";
 
 // TODO make sure when the buffer is full, no more events are stored, and the results are sent out
@@ -12,9 +14,9 @@ RTC_DATA_ATTR int numStoredMeasurements = 0;
 RTC_DATA_ATTR int msgId = 0;
 RTC_DATA_ATTR bool bufferFull = false;
 
-Storage::Storage(BMESensor *bme, DallasSensor *dallas, GMSensor *gm, State *state) {
+Storage::Storage(BMESensor *bme,  GMSensor *gm, State *state) {
+    //dallasSensor = dallas;
     bmeSensor = bme;
-    dallasSensor = dallas;
     deviceState = state;
     gmSensor = gm;
 }
@@ -47,10 +49,11 @@ int Storage::storeMeasurement()
     hum = bmeSensor->readHumidity();
   } 
 
+/*
   if(dallasSensor->isConnected()) {
       temp2 = dallasSensor->readTemp();
   }
-
+*/
   unsigned long cpm;
   bool hasCpm = false;
 
@@ -77,7 +80,9 @@ int Storage::storeMeasurement()
   next = az_span_copy(next, tmpSpan);
 
   
-  if(bmeSensor->isConnected()&&dallasSensor->isConnected()) {
+  if(bmeSensor->isConnected()
+//  &&dallasSensor->isConnected()
+  ) {
     hasMeasurement = true;
     next = az_span_copy(next, AZ_SPAN_LITERAL_FROM_STR(",\"t1\":"));
     snprintf(tmp, sizeof(tmp), "%.2f", temp);
@@ -95,7 +100,7 @@ int Storage::storeMeasurement()
     tmpSpan = az_span_create_from_str(tmp);
     next = az_span_copy(next, tmpSpan);
     //writtenChars = snprintf(bufPoi, remainingLen, bmeMessageTemplate, msgId++, temp, pres, hum, battery,currTime);
-  } else if (dallasSensor->isConnected()) {
+  } else if (false) {//dallasSensor->isConnected()) {
     hasMeasurement = true;
     next = az_span_copy(next, AZ_SPAN_LITERAL_FROM_STR(",\"t1\":"));
     snprintf(tmp, sizeof(tmp), "%.2f", temp2);
@@ -189,3 +194,5 @@ bool Storage::isBufferFull()
 {
   return bufferFull;
 }
+
+#endif
